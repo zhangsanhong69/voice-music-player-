@@ -196,7 +196,6 @@
                 });
                 this.audio.addEventListener('error', (e) => {
                     console.error('音频加载失败:', e);
-                    alert('音频加载失败');
                 });
 
                 // 触摸滑动控制进度
@@ -213,11 +212,6 @@
                 // 渲染播放列表
                 this.renderPlaylist();
                 document.getElementById('songCount').textContent = `${this.playlist.length} 首`;
-                
-                // 如果有歌曲，加载第一首但不播放
-                if (this.playlist.length > 0) {
-                    this.load(0);
-                }
             }
 
             // 从本地存储加载
@@ -226,6 +220,13 @@
                 if (saved) {
                     try {
                         this.playlist = JSON.parse(saved);
+                        // 清除本地音乐的URL（已失效）
+                        this.playlist.forEach(song => {
+                            if (song.isLocal) {
+                                song.url = null;
+                                song.artist = '本地音乐（需重新选择）';
+                            }
+                        });
                     } catch (e) {
                         console.error('加载播放列表失败:', e);
                         this.playlist = [];
@@ -235,7 +236,15 @@
 
             // 保存到本地存储
             saveToStorage() {
-                localStorage.setItem('sangePlaylist', JSON.stringify(this.playlist));
+                // 只保存非本地音乐，或保存本地音乐的基本信息（不含URL）
+                const saveData = this.playlist.map(song => ({
+                    title: song.title,
+                    artist: song.artist,
+                    duration: song.duration,
+                    isLocal: song.isLocal,
+                    url: song.isLocal ? null : song.url
+                }));
+                localStorage.setItem('sangePlaylist', JSON.stringify(saveData));
             }
 
             seek(touch) {
@@ -243,17 +252,6 @@
                 const percent = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
                 if (this.audio.duration) {
                     this.audio.currentTime = percent * this.audio.duration;
-                }
-            }
-
-            addSong(song) {
-                this.playlist.push(song);
-                this.saveToStorage();
-                this.renderPlaylist();
-                document.getElementById('songCount').textContent = `${this.playlist.length} 首`;
-                
-                if (this.playlist.length === 1) {
-                    this.load(0);
                 }
             }
 
@@ -270,8 +268,28 @@
                     isLocal: true
                 };
                 
-                this.addSong(song);
-                this.play(this.playlist.length - 1);
+                // 立即播放新添加的歌曲
+                this.playlist.push(song);
+                this.saveToStorage();
+                this.renderPlaylist();
+                document.getElementById('songCount').textContent = `${this.playlist.length} 首`;
+                
+                // 加载并播放
+                this.currentIndex = this.playlist.length - 1;
+                this.audio.src = url;
+                this.updateUI(song);
+                this.renderPlaylist();
+                
+                // 自动播放
+                this.audio.play().then(() => {
+                    this.isPlaying = true;
+                    this.updatePlayButton();
+                    document.getElementById('vinyl').classList.add('playing');
+                    document.getElementById('playingIndicator').classList.remove('hidden');
+                }).catch(e => {
+                    console.error('播放失败:', e);
+                    alert('播放失败，请检查文件格式');
+                });
                 
                 input.value = '';
             }
@@ -337,33 +355,22 @@
                 }
             }
 
-            load(index) {
+            play(index) {
                 if (index < 0 || index >= this.playlist.length) return;
-                this.currentIndex = index;
+                
                 const song = this.playlist[index];
                 
-                // 本地音乐需要重新创建 URL
-                if (song.isLocal) {
-                    // 本地文件无法持久化，需要重新选择
+                // 检查本地音乐是否需要重新选择
+                if (song.isLocal && !song.url) {
                     alert('本地音乐文件需要重新选择');
                     return;
                 }
                 
-                this.audio.src = song.url;
-                this.updateUI(song);
-                this.renderPlaylist();
-            }
-
-            play(index) {
                 if (index !== this.currentIndex) {
-                    this.load(index);
-                }
-                
-                // 检查是否是本地文件且需要重新选择
-                const song = this.playlist[index];
-                if (song.isLocal && !this.audio.src) {
-                    alert('本地音乐文件需要重新选择，请再次选择该文件');
-                    return;
+                    this.currentIndex = index;
+                    this.audio.src = song.url;
+                    this.updateUI(song);
+                    this.renderPlaylist();
                 }
                 
                 this.audio.play().then(() => {
