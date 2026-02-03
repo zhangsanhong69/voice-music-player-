@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>AI 语音点歌台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .mic-button {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            box-shadow: 0 10px 30px rgba(245, 87, 108, 0.4);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            touch-action: none;
+        }
+        
+        .mic-button:active {
+            transform: scale(0.95);
+        }
+        
+        .mic-button.listening {
+            animation: pulse 1.5s infinite;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 87, 108, 0.7); }
+            50% { box-shadow: 0 0 0 25px rgba(245, 87, 108, 0); }
+        }
+        
+        .vinyl-record {
+            animation: rotate 8s linear infinite paused;
+            border-radius: 50%;
+            background: conic-gradient(from 0deg, #1a1a1a, #333, #1a1a1a, #333, #1a1a1a);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+        }
+        
+        .vinyl-record.playing {
+            animation-play-state: running;
+        }
+        
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .song-item {
+            transition: all 0.2s ease;
+        }
+        
+        .song-item:active {
+            transform: scale(0.98);
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .song-item.active {
+            background: rgba(255, 255, 255, 0.3);
+            border-left: 4px solid #f5576c;
+        }
+        
+        .control-btn {
+            transition: transform 0.1s;
+        }
+        
+        .control-btn:active {
+            transform: scale(0.9);
+        }
+        
+        /* 隐藏滚动条但保持功能 */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        /* 防止文本选择 */
+        .no-select {
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        
+        /* 底部安全区域（适配iPhone X以上机型） */
+        .safe-bottom {
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+    </style>
+</head>
+<body class="text-white no-select">
+    <div class="container mx-auto px-4 py-6 max-w-md min-h-screen flex flex-col">
+        <!-- 标题 -->
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-bold mb-1 bg-clip-text text-transparent bg-gradient-to-r from-pink-300 to-purple-300">
+                🎵 AI 语音点歌台
+            </h1>
+            <p class="text-white/70 text-sm">点击麦克风，说出歌名或歌手</p>
+        </header>
+
+        <!-- 主播放器 -->
+        <div class="glass-effect rounded-3xl p-6 mb-4 shadow-2xl">
+            <div class="flex flex-col items-center">
+                <!-- 唱片 -->
+                <div class="relative w-48 h-48 mb-6">
+                    <div id="vinyl" class="vinyl-record w-full h-full flex items-center justify-center">
+                        <div class="w-16 h-16 bg-gradient-to-br from-pink-400 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                            <div class="w-5 h-5 bg-black/80 rounded-full border-2 border-white/30"></div>
+                        </div>
+                    </div>
+                    <div id="playingIndicator" class="absolute -bottom-1 -right-1 w-5 h-5 bg-green-400 rounded-full hidden shadow-lg border-2 border-white"></div>
+                </div>
+
+                <!-- 歌曲信息 -->
+                <div class="text-center w-full mb-4">
+                    <h2 id="currentTitle" class="text-2xl font-bold mb-1 truncate px-2">准备就绪</h2>
+                    <p id="currentArtist" class="text-white/70 text-base truncate">点击麦克风开始语音点歌</p>
+                </div>
+
+                <!-- 进度条 -->
+                <div class="w-full mb-4 px-2">
+                    <div class="flex justify-between text-xs text-white/60 mb-1">
+                        <span id="currentTime">0:00</span>
+                        <span id="duration">0:00</span>
+                    </div>
+                    <div class="w-full bg-white/20 rounded-full h-1.5 touch-none" id="progressContainer">
+                        <div id="progressBar" class="h-full bg-gradient-to-r from-pink-400 to-purple-400 rounded-full transition-all duration-100" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- 控制按钮 -->
+                <div class="flex items-center justify-center gap-8">
+                    <button onclick="player.previous()" class="control-btn p-3 rounded-full bg-white/10 hover:bg-white/20">
+                        <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                    </button>
+                    <button id="playBtn" onclick="player.togglePlay()" class="control-btn p-4 bg-white text-purple-600 rounded-full shadow-lg hover:shadow-xl">
+                        <svg id="playIcon" class="w-10 h-10 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        <svg id="pauseIcon" class="w-10 h-10 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    </button>
+                    <button onclick="player.next()" class="control-btn p-3 rounded-full bg-white/10 hover:bg-white/20">
+                        <svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 语音控制 -->
+        <div class="glass-effect rounded-2xl p-5 mb-4 text-center">
+            <div class="mb-3">
+                <p id="voiceStatus" class="text-sm text-white/80 mb-1">点击麦克风说话</p>
+                <p id="voiceResult" class="text-lg font-bold text-pink-300 min-h-[1.5rem] break-words"></p>
+            </div>
+            
+            <button id="micBtn" onclick="voiceController.toggleListening()" class="mic-button w-20 h-20 rounded-full flex items-center justify-center mx-auto relative">
+                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                </svg>
+            </button>
+            
+            <div class="mt-3 flex flex-wrap justify-center gap-2 text-xs text-white/60">
+                <span class="bg-white/10 px-2 py-1 rounded">"播放稻香"</span>
+                <span class="bg-white/10 px-2 py-1 rounded">"下一首"</span>
+                <span class="bg-white/10 px-2 py-1 rounded">"暂停"</span>
+            </div>
+        </div>
+
+        <!-- 播放列表 -->
+        <div class="glass-effect rounded-2xl p-4 flex-1 flex flex-col min-h-[200px]">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-lg font-bold">播放列表</h3>
+                <span id="songCount" class="text-xs bg-white/20 px-2 py-1 rounded-full">0 首</span>
+            </div>
+            
+            <div id="playlist" class="flex-1 overflow-y-auto hide-scrollbar space-y-2">
+                <!-- 动态生成 -->
+            </div>
+        </div>
+
+        <!-- 底部提示 -->
+        <div class="mt-4 text-center text-xs text-white/50 safe-bottom">
+            支持 Chrome/Safari • 需允许麦克风权限
+        </div>
+    </div>
+
+    <audio id="audioPlayer" crossorigin="anonymous" preload="metadata"></audio>
+
+    <script>
+        // 歌曲库
+        const sampleSongs = [
+            { title: "稻香", artist: "周杰伦", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", duration: "3:43" },
+            { title: "晴天", artist: "周杰伦", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3", duration: "4:29" },
+            { title: "夜曲", artist: "周杰伦", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", duration: "3:46" },
+            { title: "平凡之路", artist: "朴树", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3", duration: "4:30" },
+            { title: "演员", artist: "薛之谦", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3", duration: "4:20" },
+            { title: "成都", artist: "赵雷", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3", duration: "5:28" },
+            { title: "告白气球", artist: "周杰伦", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3", duration: "3:35" },
+            { title: "光年之外", artist: "邓紫棋", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3", duration: "3:55" }
+        ];
+
+        class MusicPlayer {
+            constructor() {
+                this.audio = document.getElementById('audioPlayer');
+                this.playlist = [];
+                this.currentIndex = -1;
+                this.isPlaying = false;
+                this.touchStartX = 0;
+                
+                this.init();
+            }
+
+            init() {
+                this.audio.addEventListener('timeupdate', () => this.updateProgress());
+                this.audio.addEventListener('ended', () => this.next());
+                this.audio.addEventListener('loadedmetadata', () => {
+                    document.getElementById('duration').textContent = this.formatTime(this.audio.duration);
+                });
+
+                // 触摸滑动控制进度
+                const progressContainer = document.getElementById('progressContainer');
+                progressContainer.addEventListener('touchstart', (e) => {
+                    this.touchStartX = e.touches[0].clientX;
+                    this.seek(e.touches[0]);
+                });
+                progressContainer.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    this.seek(e.touches[0]);
+                });
+
+                // 添加示例歌曲
+                this.addSampleSongs();
+            }
+
+            seek(touch) {
+                const rect = document.getElementById('progressContainer').getBoundingClientRect();
+                const percent = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                if (this.audio.duration) {
+                    this.audio.currentTime = percent * this.audio.duration;
+                }
+            }
+
+            addSampleSongs() {
+                sampleSongs.forEach(song => this.addSong(song));
+            }
+
+            addSong(song) {
+                this.playlist.push(song);
+                this.renderPlaylist();
+                document.getElementById('songCount').textContent = `${this.playlist.length} 首`;
+                
+                if (this.playlist.length === 1) {
+                    this.load(0);
+                }
+            }
+
+            renderPlaylist() {
+                const container = document.getElementById('playlist');
+                container.innerHTML = this.playlist.map((song, index) => `
+                    <div class="song-item p-3 rounded-xl cursor-pointer flex items-center gap-3 ${index === this.currentIndex ? 'active' : 'bg-white/5'}" 
+                         onclick="player.play(${index})">
+                        <div class="w-10 h-10 bg-gradient-to-br from-pink-400 to-purple-600 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0">
+                            ${index === this.currentIndex && this.isPlaying ? '▶' : index + 1}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h4 class="font-bold text-sm truncate">${song.title}</h4>
+                            <p class="text-xs text-white/60 truncate">${song.artist}</p>
+                        </div>
+                        <span class="text-xs text-white/40">${song.duration}</span>
+                    </div>
+                `).join('');
+            }
+
+            load(index) {
+                if (index < 0 || index >= this.playlist.length) return;
+                this.currentIndex = index;
+                const song = this.playlist[index];
+                this.audio.src = song.url;
+                this.updateUI(song);
+                this.renderPlaylist();
+            }
+
+            play(index) {
+                if (index !== this.currentIndex) {
+                    this.load(index);
+                }
+                this.audio.play().then(() => {
+                    this.isPlaying = true;
+                    this.updatePlayButton();
+                    document.getElementById('vinyl').classList.add('playing');
+                    document.getElementById('playingIndicator').classList.remove('hidden');
+                }).catch(e => console.error('播放失败:', e));
+            }
+
+            togglePlay() {
+                if (this.currentIndex === -1) {
+                    if (this.playlist.length > 0) this.play(0);
+                    return;
+                }
+
+                if (this.isPlaying) {
+                    this.audio.pause();
+                    this.isPlaying = false;
+                    document.getElementById('vinyl').classList.remove('playing');
+                    document.getElementById('playingIndicator').classList.add('hidden');
+                } else {
+                    this.audio.play();
+                    this.isPlaying = true;
+                    document.getElementById('vinyl').classList.add('playing');
+                    document.getElementById('playingIndicator').classList.remove('hidden');
+                }
+                this.updatePlayButton();
+                this.renderPlaylist();
+            }
+
+            next() {
+                if (this.playlist.length === 0) return;
+                const nextIndex = (this.currentIndex + 1) % this.playlist.length;
+                this.play(nextIndex);
+            }
+
+            previous() {
+                if (this.playlist.length === 0) return;
+                const prevIndex = (this.currentIndex - 1 + this.playlist.length) % this.playlist.length;
+                this.play(prevIndex);
+            }
+
+            updateUI(song) {
+                document.getElementById('currentTitle').textContent = song.title;
+                document.getElementById('currentArtist').textContent = song.artist;
+            }
+
+            updatePlayButton() {
+                const playIcon = document.getElementById('playIcon');
+                const pauseIcon = document.getElementById('pauseIcon');
+                
+                if (this.isPlaying) {
+                    playIcon.classList.add('hidden');
+                    pauseIcon.classList.remove('hidden');
+                } else {
+                    playIcon.classList.remove('hidden');
+                    pauseIcon.classList.add('hidden');
+                }
+            }
+
+            updateProgress() {
+                if (!this.audio.duration) return;
+                const percent = (this.audio.currentTime / this.audio.duration) * 100;
+                document.getElementById('progressBar').style.width = `${percent}%`;
+                document.getElementById('currentTime').textContent = this.formatTime(this.audio.currentTime);
+            }
+
+            formatTime(seconds) {
+                if (isNaN(seconds)) return '0:00';
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+
+            searchAndPlay(keyword) {
+                keyword = keyword.toLowerCase().replace(/[，。！？、]/g, '');
+                
+                // 指令处理
+                if (keyword.includes('下一首') || keyword.includes('下一曲') || keyword.includes('切歌')) {
+                    this.next();
+                    return { success: true, action: '下一首' };
+                }
+                if (keyword.includes('上一首') || keyword.includes('上一曲')) {
+                    this.previous();
+                    return { success: true, action: '上一首' };
+                }
+                if (keyword.includes('暂停') || keyword.includes('停止')) {
+                    if (this.isPlaying) this.togglePlay();
+                    return { success: true, action: '暂停' };
+                }
+                if ((keyword.includes('播放') || keyword.includes('开始')) && !keyword.includes('播放')) {
+                    if (!this.isPlaying && this.currentIndex !== -1) {
+                        this.togglePlay();
+                        return { success: true, action: '播放' };
+                    }
+                }
+
+                // 搜索歌曲
+                const index = this.playlist.findIndex(song => 
+                    song.title.toLowerCase().includes(keyword) || 
+                    song.artist.toLowerCase().includes(keyword)
+                );
+
+                if (index !== -1) {
+                    this.play(index);
+                    return { success: true, song: this.playlist[index] };
+                }
+
+                return { success: false };
+            }
+        }
+
+        class VoiceController {
+            constructor() {
+                this.recognition = null;
+                this.isListening = false;
+                this.init();
+            }
+
+            init() {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                
+                if (!SpeechRecognition) {
+                    document.getElementById('voiceStatus').textContent = '您的浏览器不支持语音识别';
+                    document.getElementById('micBtn').style.opacity = '0.5';
+                    return;
+                }
+
+                this.recognition = new SpeechRecognition();
+                this.recognition.lang = 'zh-CN';
+                this.recognition.continuous = false;
+                this.recognition.interimResults = true;
+                this.recognition.maxAlternatives = 1;
+
+                this.recognition.onstart = () => {
+                    this.isListening = true;
+                    document.getElementById('micBtn').classList.add('listening');
+                    document.getElementById('voiceStatus').textContent = '正在聆听...';
+                    document.getElementById('voiceResult').textContent = '';
+                };
+
+                this.recognition.onresult = (event) => {
+                    const result = event.results[event.results.length - 1];
+                    const transcript = result[0].transcript;
+                    
+                    document.getElementById('voiceResult').textContent = transcript;
+                    
+                    if (result.isFinal) {
+                        setTimeout(() => this.processCommand(transcript), 500);
+                    }
+                };
+
+                this.recognition.onerror = (event) => {
+                    console.error('识别错误:', event.error);
+                    let msg = '识别失败';
+                    if (event.error === 'no-speech') msg = '未检测到语音';
+                    if (event.error === 'audio-capture') msg = '无法访问麦克风';
+                    if (event.error === 'not-allowed') msg = '请允许麦克风权限';
+                    
+                    document.getElementById('voiceStatus').textContent = msg;
+                    this.stopListening();
+                };
+
+                this.recognition.onend = () => {
+                    this.stopListening();
+                };
+            }
+
+            toggleListening() {
+                if (!this.recognition) {
+                    alert('您的浏览器不支持语音识别，请使用Chrome或Safari');
+                    return;
+                }
+                
+                if (this.isListening) {
+                    this.recognition.stop();
+                } else {
+                    try {
+                        this.recognition.start();
+                    } catch (e) {
+                        console.error('启动失败:', e);
+                    }
+                }
+            }
+
+            stopListening() {
+                this.isListening = false;
+                document.getElementById('micBtn').classList.remove('listening');
+                if (document.getElementById('voiceStatus').textContent === '正在聆听...') {
+                    document.getElementById('voiceStatus').textContent = '点击麦克风说话';
+                }
+            }
+
+            processCommand(command) {
+                document.getElementById('voiceStatus').textContent = '执行中...';
+                
+                const result = player.searchAndPlay(command);
+                
+                if (result.success) {
+                    if (result.song) {
+                        document.getElementById('voiceStatus').textContent = `正在播放：${result.song.title}`;
+                    } else if (result.action) {
+                        document.getElementById('voiceStatus').textContent = `已执行：${result.action}`;
+                    }
+                } else {
+                    document.getElementById('voiceStatus').textContent = '未找到歌曲，请重试';
+                }
+
+                setTimeout(() => {
+                    if (!this.isListening) {
+                        document.getElementById('voiceStatus').textContent = '点击麦克风说话';
+                        document.getElementById('voiceResult').textContent = '';
+                    }
+                }, 3000);
+            }
+        }
+
+        const player = new MusicPlayer();
+        const voiceController = new VoiceController();
+
+        // 防止移动端双击缩放
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (e) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                e.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+    </script>
+</body>
+</html>
